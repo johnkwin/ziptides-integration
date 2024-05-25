@@ -1,0 +1,49 @@
+<HTML>
+    <HEAD></HEAD>
+    <BODY>
+        <script src="https://checkout-sdk.bigcommerce.com/v1/loader.js"></script>
+        <script>
+const getQueryVariable = (variable) => {
+    const query = window.location.search.substring(1);
+            const vars = query.split('&');
+
+            for (let i = 0; i < vars.length; i++) {
+        const pair = vars[i].split('=');
+            if (decodeURIComponent(pair[0]) === variable) {
+            return decodeURIComponent(pair[1]);
+        }
+    }
+            console.log('Query variable %s not found', variable);
+            return false; 
+};
+
+document.addEventListener('DOMContentLoaded', async function() {
+    if (window.checkoutKitLoader) {
+        const module = await window.checkoutKitLoader.load('checkout-sdk');
+            const checkoutService = module.createCheckoutService();
+            const checkoutId = getQueryVariable('cart_id');
+            const cartId = getQueryVariable('cart_id');
+            const status_id = getQueryVariable('status_id');
+            const payment_method = getQueryVariable('payment_method');
+            try {
+				const checkoutState = await checkoutService.loadCheckout(checkoutId);
+				console.log(checkoutState.data.getCheckout());
+
+				const paymentMethodsState = await checkoutService.loadPaymentMethods();
+				console.log(paymentMethodsState.data.getPaymentMethods());
+				const state = await checkoutService.submitOrder({
+					payment: {
+					methodId: 'instore',
+				paymentData: { },
+					},
+				});
+				await checkoutService.loadCheckout(checkoutId);
+				window.location.assign("https://ziptides.com/checkout/order-confirmation");
+			} catch (error) {
+				window.location.assign("https://ziptides.com/checkout/order-confirmation");
+			}
+    }
+});
+        </script>
+    </BODY>
+</HTML>
