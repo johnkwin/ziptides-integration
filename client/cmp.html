@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Processing</title>
+    <script src="https://checkout-sdk.bigcommerce.com/v1/loader.js"></script>
+</head>
+<body>
+    <script>
+        const getQueryVariable = (variable) => {
+            const query = window.location.search.substring(1);
+            const vars = query.split('&');
+
+            for (let i = 0; i < vars.length; i++) {
+                const pair = vars[i].split('=');
+                if (decodeURIComponent(pair[0]) === variable) {
+                    return decodeURIComponent(pair[1]);
+                }
+            }
+            console.error(`Query variable ${variable} not found`);
+            return null;
+        };
+
+        const orderExists = async (checkoutService, checkoutId) => {
+            try {
+                const checkoutState = await checkoutService.loadCheckout(checkoutId);
+                const order = checkoutState.data.getCheckout().order;
+
+                return order ? true : false;
+            } catch (error) {
+                console.error('Error checking order existence:', error);
+                return false;
+            }
+        };
+
+        const submitOrder = async (checkoutService, checkoutId) => {
+            try {
+                await checkoutService.initializePayment({ methodId: 'instore' });
+
+                await checkoutService.submitOrder({
+                    payment: {
+                        methodId: 'instore',
+                        paymentData: {},
+                    },
+                });
+
+                return true;
+            } catch (error) {
+                console.error('Error submitting order:', error);
+                return false;
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (!window.checkoutKitLoader) {
+                console.error('CheckoutKitLoader is not available');
+                return;
+            }
+
+            try {
+                const module = await window.checkoutKitLoader.load('checkout-sdk');
+                const checkoutService = module.createCheckoutService();
+                const checkoutId = getQueryVariable('cart_id');
+
+                if (!checkoutId) {
+                    throw new Error('Cart ID is missing');
+                }
+
+                const orderBeforeSubmit = await orderExists(checkoutService, checkoutId);
+                if (orderBeforeSubmit) {
+                    console.error('Order already exists before submission');
+                    window.location.assign("https://ziptides.com/checkout/order-confirmation");
+                    return;
+                }
+
+                const orderSubmissionSuccess = await submitOrder(checkoutService, checkoutId);
+                if (!orderSubmissionSuccess) {
+                    window.location.assign("https://ziptides.com/checkout/order-confirmation");
+                    return;
+                }
+
+                const orderAfterSubmit = await orderExists(checkoutService, checkoutId);
+                if (orderAfterSubmit) {
+                    console.error('Order still exists after submission');
+                    alert(`Error during checkout please contact support with reference: ${checkoutId}.`);
+                    window.location.assign("/checkout");
+                    return;
+                }
+
+                window.location.assign("https://ziptides.com/checkout/order-confirmation");
+            } catch (error) {
+                console.error('Error during checkout process:', error);
+                window.location.assign("https://ziptides.com/checkout/order-confirmation");
+            }
+        });
+    </script>
+</body>
+</html>
