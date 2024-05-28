@@ -3,7 +3,7 @@ const https = require('https');
 const express = require('express');
 const cors = require('cors');
 const Joi = require('joi');
-const { storeVariables } = require('./monitor');
+const { storeVariables, monitorStoredVariables } = require('./monitor.js');
 const { sendErrorNotification } = require('./mailer');
 const app = express();
 
@@ -32,7 +32,7 @@ const webhookSchema = Joi.object({
         rt_token: Joi.string().allow(null),
         sndr_name: Joi.string().optional(),
         sndr_email: Joi.string().email().required(),
-        sndr_bname: Joi.string().optional(),
+        sndr_bname: Joi.string().allow(null).optional(),
         sndr_lbacc: Joi.string().optional(),
         is_same_day: Joi.number().valid(0, 1).optional(),
         same_day_delay: Joi.number().optional(),
@@ -53,13 +53,15 @@ const webhookSchema = Joi.object({
         error_explanation: Joi.string().allow('').optional()
     }).optional(),
     timestamp: Joi.string().isoDate().required(),
+    next_billing_date: Joi.string().allow(null).optional() // Add this line
 }).or('test', 'check');
+
 
 app.post('/webhook', async (req, res) => {
     const { error, value } = webhookSchema.validate(req.body);
     if (error) {
         console.error('Invalid data format:', error.details);
-        sendErrorNotification('Invalid data format');
+        //sendErrorNotification('Invalid data format');
         return res.status(400).send('Invalid data format');
     }
 
@@ -76,7 +78,7 @@ app.post('/webhook', async (req, res) => {
             res.sendStatus(200);
         } catch (error) {
             console.error('Error processing webhook:', error);
-            sendErrorNotification(error.message);
+            //sendErrorNotification(error.message);
             res.sendStatus(500);
         }
     } else {
@@ -86,11 +88,11 @@ app.post('/webhook', async (req, res) => {
 });
 
 // Error notification endpoint
-app.post('/notify-error', (req, res) => {
+/*app.post('/notify-error', (req, res) => {
     const { errorMessage } = req.body;
     sendErrorNotification(errorMessage);
     res.sendStatus(200);
-});
+});*/
 
 // Create the HTTPS server
 const httpsServer = https.createServer(credentials, app);
@@ -98,4 +100,5 @@ const httpsServer = https.createServer(credentials, app);
 // Start the server on port 3000
 httpsServer.listen(3000, () => {
     console.log('HTTPS Server is running on port 3000');
+	monitorStoredVariables(); // Start monitoring stored variables
 });

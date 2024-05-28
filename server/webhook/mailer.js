@@ -3,15 +3,15 @@ const { google } = require('googleapis');
 
 const OAuth2 = google.auth.OAuth2;
 
-const oauth2Client = new OAuth2(
+/*const oauth2Client = new OAuth2(
     '38782066727-gnr3hp167ncn9lhn9727gnneklaso8et.apps.googleusercontent.com', // Replace with your Client ID
     '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', // Replace with your Client Secret
     'https://developers.google.com/oauthplayground' // Redirect URL
-);
+);*/
 
-oauth2Client.setCredentials({
-    refresh_token: '1//04AkvTK7yUfplCgYIARAAGAQSNwF-L9IroocrH5vm4HVprFs_DloCdJGYpMPywaHYoQ_D2SunM5-BfyCk5WbPPpA27GMDxyNSuxw'
-});
+//oauth2Client.setCredentials({
+ //   refresh_token: '1//04AkvTK7yUfplCgYIARAAGAQSNwF-L9IroocrH5vm4HVprFs_DloCdJGYpMPywaHYoQ_D2SunM5-BfyCk5WbPPpA27GMDxyNSuxw'
+//});
 
 async function getAccessToken() {
     try {

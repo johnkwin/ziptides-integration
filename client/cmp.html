@@ -5,8 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Order Processing</title>
     <script src="https://checkout-sdk.bigcommerce.com/v1/loader.js"></script>
+    <style>
+        .spinner {
+            margin: 100px auto;
+            width: 40px;
+            height: 40px;
+            position: relative;
+        }
+
+        .double-bounce1, .double-bounce2 {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background-color: #333;
+            opacity: 0.6;
+            position: absolute;
+            top: 0;
+            left: 0;
+            -webkit-animation: sk-bounce 2.0s infinite ease-in-out;
+            animation: sk-bounce 2.0s infinite ease-in-out;
+        }
+
+        .double-bounce2 {
+            -webkit-animation-delay: -1.0s;
+            animation-delay: -1.0s;
+        }
+
+        @-webkit-keyframes sk-bounce {
+            0%, 100% { -webkit-transform: scale(0.0) }
+            50% { -webkit-transform: scale(1.0) }
+        }
+
+        @keyframes sk-bounce {
+            0%, 100% { 
+                transform: scale(0.0);
+                -webkit-transform: scale(0.0);
+            } 50% { 
+                transform: scale(1.0);
+                -webkit-transform: scale(1.0);
+            }
+        }
+    </style>
 </head>
 <body>
+    <div class="spinner">
+        <div class="double-bounce1"></div>
+        <div class="double-bounce2"></div>
+    </div>
     <script>
         const getQueryVariable = (variable) => {
             const query = window.location.search.substring(1);
@@ -29,32 +74,48 @@
 
                 return order ? true : false;
             } catch (error) {
-                console.error('Error checking order existence:', error);
+                console.log('Order not found, Continuing...');
                 return false;
             }
         };
 
         const submitOrder = async (checkoutService, checkoutId) => {
             try {
-                await checkoutService.initializePayment({ methodId: 'instore' });
-
+                //await checkoutService.initializePayment({ methodId: 'instore' });
+                const paymentMethodsState = await checkoutService.loadPaymentMethods();
                 await checkoutService.submitOrder({
                     payment: {
                         methodId: 'instore',
-                        paymentData: {},
+                        paymentData: { },
                     },
                 });
-
                 return true;
             } catch (error) {
                 console.error('Error submitting order:', error);
+                await notifyError(`Error submitting order: ${error.message}`);
                 return false;
+            }
+        };
+
+        const notifyError = async (errorMessage) => {
+            try {
+                await fetch('https://services.ziptides.com:3000/notify-error', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ errorMessage })
+                });
+            } catch (error) {
+                console.error('Error notifying server:', error);
             }
         };
 
         document.addEventListener('DOMContentLoaded', async () => {
             if (!window.checkoutKitLoader) {
-                console.error('CheckoutKitLoader is not available');
+                const errorMessage = 'CheckoutKitLoader is not available';
+                console.error(errorMessage);
+                await notifyError(errorMessage);
                 return;
             }
 
@@ -64,12 +125,17 @@
                 const checkoutId = getQueryVariable('cart_id');
 
                 if (!checkoutId) {
-                    throw new Error('Cart ID is missing');
+                    const errorMessage = 'Cart ID is missing';
+                    console.error(errorMessage);
+                    await notifyError(errorMessage);
+                    throw new Error(errorMessage);
                 }
 
                 const orderBeforeSubmit = await orderExists(checkoutService, checkoutId);
                 if (orderBeforeSubmit) {
-                    console.error('Order already exists before submission');
+                    const errorMessage = 'Order already exists before submission';
+                    console.error(errorMessage);
+                    await notifyError(errorMessage);
                     window.location.assign("https://ziptides.com/checkout/order-confirmation");
                     return;
                 }
@@ -82,7 +148,9 @@
 
                 const orderAfterSubmit = await orderExists(checkoutService, checkoutId);
                 if (orderAfterSubmit) {
-                    console.error('Order still exists after submission');
+                    const errorMessage = 'Order still exists after submission';
+                    console.error(errorMessage);
+                    await notifyError(errorMessage);
                     alert(`Error during checkout please contact support with reference: ${checkoutId}.`);
                     window.location.assign("/checkout");
                     return;
@@ -91,8 +159,15 @@
                 window.location.assign("https://ziptides.com/checkout/order-confirmation");
             } catch (error) {
                 console.error('Error during checkout process:', error);
+                await notifyError(`Error during checkout process: ${error.message}`);
                 window.location.assign("https://ziptides.com/checkout/order-confirmation");
             }
+        });
+
+        window.addEventListener('beforeunload', function (e) {
+            const message = 'Processing order... Do not close the page!';
+            (e || window.event).returnValue = message; // For older browsers
+            return message; // For modern browsers
         });
     </script>
 </body>
