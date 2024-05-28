@@ -1,7 +1,6 @@
-// monitor.js (or the file where your monitoring function is)
 const fs = require('fs');
 const axios = require('axios');
-const config = require('./config'); // Import the config file
+const config = require('../../config');
 
 const getOrderIDbyCartID = async (cart_id) => {
     try {
