@@ -61,7 +61,7 @@ app.post('/webhook', async (req, res) => {
     const { error, value } = webhookSchema.validate(req.body);
     if (error) {
         console.error('Invalid data format:', error.details);
-        //sendErrorNotification('Invalid data format');
+        sendErrorNotification(`Response not processed as a valid payment\nStatus: ${data.check.status}\n\n${JSON.stringify(req.body, null, 2)}\n`);
         return res.status(400).send('Invalid data format');
     }
 
@@ -78,7 +78,7 @@ app.post('/webhook', async (req, res) => {
             res.sendStatus(200);
         } catch (error) {
             console.error('Error processing webhook:', error);
-            //sendErrorNotification(error.message);
+            sendErrorNotification(`'Error processing webhook: ${error.message}`);
             res.sendStatus(500);
         }
     } else {
@@ -88,11 +88,11 @@ app.post('/webhook', async (req, res) => {
 });
 
 // Error notification endpoint
-/*app.post('/notify-error', (req, res) => {
+app.post('/notify-error', (req, res) => {
     const { errorMessage } = req.body;
     sendErrorNotification(errorMessage);
     res.sendStatus(200);
-});*/
+});
 
 // Create the HTTPS server
 const httpsServer = https.createServer(credentials, app);

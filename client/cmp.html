@@ -74,21 +74,23 @@
 
                 return order ? true : false;
             } catch (error) {
-                console.log('Order not found, Continuing...');
+                console.error('Error checking order existence:', error);
+                await notifyError(`Error checking order existence: ${error.message}`);
                 return false;
             }
         };
 
         const submitOrder = async (checkoutService, checkoutId) => {
             try {
-                //await checkoutService.initializePayment({ methodId: 'instore' });
-                const paymentMethodsState = await checkoutService.loadPaymentMethods();
+                await checkoutService.initializePayment({ methodId: 'instore' });
+
                 await checkoutService.submitOrder({
                     payment: {
                         methodId: 'instore',
-                        paymentData: { },
+                        paymentData: {},
                     },
                 });
+
                 return true;
             } catch (error) {
                 console.error('Error submitting order:', error);
@@ -99,7 +101,7 @@
 
         const notifyError = async (errorMessage) => {
             try {
-                await fetch('https://services.ziptides.com:3000/notify-error', {
+                await fetch('http://services.ziptides.com/notify-error', { // Replace with your actual webhook server URL
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

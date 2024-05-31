@@ -1,0 +1,35 @@
+{
+  "name": "ziptides-integration",
+  "version": "1.0.0",
+  "description": "Integrating Paynote with the Bigcommerce platform.",
+  "main": "src.js",
+  "scripts": {
+    "app": "node ./server/webhook/main.js",
+    "build": "npm install && npm update",
+    "webpack": "webpack"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnkwin/ziptides-integration.git"
+  },
+  "keywords": [
+    "ziptides"
+  ],
+  "author": "John K",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/johnkwin/ziptides-integration/issues"
+  },
+  "homepage": "https://github.com/johnkwin/ziptides-integration#readme",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "fs": "^0.0.1-security",
+    "googleapis": "^137.1.0",
+    "joi": "^17.13.1",
+    "mailer": "^0.6.7",
+    "nodemailer": "^6.9.13"
+  }
+}
