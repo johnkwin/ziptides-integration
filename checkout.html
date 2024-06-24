@@ -26,6 +26,11 @@
     </div>
 </header>
 <script type="text/javascript" src="https://developers.seamlesschex.com/docs/checkoutjs/sdk-min.js"></script>
+<style>
+    .form-checklist-item {
+    background-color: transparent !important; /* Ensure background is transparent */
+}
+</style>
 <script src="https://checkout-sdk.bigcommerce.com/v1/loader.js"></script>
 <script>
     let service, state; // Declare these variables globally for reuse
@@ -158,7 +163,97 @@
 {{{ checkout.checkout_content }}}
 
 
+<script>
+function highlightACH() {
+    // Function to wait for the element to appear in the DOM
+    function waitForElement(selector, callback) {
+        const observer = new MutationObserver((mutations, observer) => {
+            if (document.querySelector(selector)) {
+                callback();
+                observer.disconnect();
+            }
+        });
 
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // Function to highlight the element
+    function highlightElement(element) {
+        if (element) {
+            element.style.backgroundColor = 'yellow';
+            element.style.border = '2px solid red';
+            element.style.padding = '10px';
+            element.style.borderRadius = '5px';
+        }
+    }
+
+    // Wait for the specific element to appear and then highlight it
+    waitForElement('ul.form-checklist.optimizedCheckout-form-checklist li.form-checklist-item.optimizedCheckout-form-checklist-item', () => {
+        document.querySelectorAll('ul.form-checklist.optimizedCheckout-form-checklist li.form-checklist-item.optimizedCheckout-form-checklist-item').forEach(item => {
+            const nameElement = item.querySelector('div[data-test="payment-method-name"]');
+            if (nameElement && nameElement.textContent.trim() === 'PayPal') {
+                highlightElement(item);
+            }
+        });
+    });
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const paymentLogos = {
+        'PayPal': '/content/paypal.jpg',
+        'Cash App (BTC) or Bitcoin': '/content/cashapp.png',
+        'Venmo': '/content/venmo.jpg',
+        'Bank ACH using Plaid': '/content/plaid.png',
+        'Zelle  *NEW*': '/content/zelle.png'
+    };
+
+    function addPaymentLogos() {
+        function waitForPaymentMethods() {
+            return new Promise((resolve) => {
+                const observer = new MutationObserver((mutations, obs) => {
+                    const paymentMethods = document.querySelectorAll('.paymentProviderHeader-name');
+                    if (paymentMethods.length > 0) {
+                        resolve(paymentMethods);
+                        obs.disconnect();
+                    }
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
+            });
+        }
+
+        waitForPaymentMethods().then(paymentMethods => {
+            console.log('Found payment methods:', paymentMethods);
+
+            paymentMethods.forEach(paymentMethod => {
+                const methodName = paymentMethod.textContent.trim();
+                console.log('Processing payment method:', methodName);
+
+                const logoUrl = paymentLogos[methodName];
+                console.log('Logo URL:', logoUrl);
+                
+                if (logoUrl) {
+                    const img = document.createElement('img');
+                    img.src = logoUrl;
+                    img.alt = `${methodName} logo`;
+                    img.style.width = '50px';
+                    img.style.marginRight = '10px';
+
+                    const nameContainer = paymentMethod.closest('.paymentProviderHeader-nameContainer');
+                    nameContainer.style.display = 'flex';
+                    nameContainer.style.alignItems = 'center';
+                    paymentMethod.insertAdjacentElement('beforebegin', img);
+                } else {
+                    console.warn('No logo URL found for method:', methodName);
+                }
+            });
+        }).catch(error => {
+            console.error('Error finding payment methods:', error);
+        });
+    }
+
+    addPaymentLogos();
+});
+highlightACH();
+</script>
 {{{ footer.scripts }}}
 
 {{/partial}}
