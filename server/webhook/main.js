@@ -1,11 +1,13 @@
 const fs = require('fs');
 const https = require('https');
-const express = require('express');
 const cors = require('cors');
 const Joi = require('joi');
-const { storeVariables, monitorStoredVariables } = require('./monitor.js');
+const express = require('express');
+const axios = require('axios');
+const { storeVariables, getStoredVariableByOrderId, monitorStoredVariables } = require('./monitor');
 const { sendErrorNotification } = require('./mailer');
 const app = express();
+const config = require('../../config');
 
 // Load the SSL certificate and key
 const privateKey = fs.readFileSync('/etc/letsencrypt/live/services.ziptides.com/privkey.pem', 'utf8');
@@ -15,75 +17,216 @@ const credentials = { key: privateKey, cert: certificate };
 app.use(cors());
 app.use(express.json());
 
-const webhookSchema = Joi.object({
-    event: Joi.string().required(),
-    test: Joi.object({
-        url: Joi.string().uri().required()
-    }).optional(),
-    check: Joi.object({
-        check_id: Joi.string().required(),
-        link_id: Joi.string().allow(null),
-        number: Joi.string().optional(),
-        amount: Joi.number().required(),
-        fee: Joi.number().optional(),
-        description: Joi.string().optional(),
-        status: Joi.string().required(),
-        identifier: Joi.string().required(),
-        rt_token: Joi.string().allow(null),
-        sndr_name: Joi.string().optional(),
-        sndr_email: Joi.string().email().required(),
-        sndr_bname: Joi.string().allow(null).optional(),
-        sndr_lbacc: Joi.string().optional(),
-        is_same_day: Joi.number().valid(0, 1).optional(),
-        same_day_delay: Joi.number().optional(),
-        estimated_at: Joi.string().isoDate().optional(),
-        rec_name: Joi.string().optional(),
-        rec_email: Joi.string().email().optional(),
-        rec_bname: Joi.string().optional(),
-        rec_lbacc: Joi.string().optional(),
-        is_rtp: Joi.number().valid(0, 1).optional(),
-        direction: Joi.string().valid('incoming', 'outgoing').optional(),
-        debit_date: Joi.string().optional(),
-        credit_date: Joi.string().allow(null).optional(),
-        printed_date: Joi.string().allow(null).optional(),
-        recurring: Joi.boolean().optional(),
-        receive_date: Joi.string().optional(),
-        error_code: Joi.string().allow('').optional(),
-        error_description: Joi.string().allow('').optional(),
-        error_explanation: Joi.string().allow('').optional()
-    }).optional(),
-    timestamp: Joi.string().isoDate().required(),
-    next_billing_date: Joi.string().allow(null).optional() // Add this line
-}).or('test', 'check');
+app.post('/create-payment', async (req, res) => {
+    const { cartId, firstName, lastName, requestFor, countryCode, amount, ipAddress, source } = req.body;
 
+    try {
+        const fetchModule = await import('node-fetch');
+        const fetch = fetchModule.default;
+        const Headers = fetchModule.Headers;
 
-app.post('/webhook', async (req, res) => {
-    const { error, value } = webhookSchema.validate(req.body);
-    if (error) {
-        console.error('Invalid data format:', error.details);
-        sendErrorNotification(`Response not processed as a valid payment\nStatus: ${data.check.status}\n\n${JSON.stringify(req.body, null, 2)}\n`);
-        return res.status(400).send('Invalid data format');
+        // Process the order
+        const tokenResponse = await axios.post(
+            `https://api.bigcommerce.com/stores/${config.STORE_HASH}/v3/checkouts/${cartId}/token`,
+            { maxUses: 1, ttl: 86400 },
+            {
+                headers: {
+                    'X-Auth-Token': config.API_TOKEN,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        const checkoutToken = tokenResponse.data.data.checkoutToken;
+        const checkoutId = cartId;
+
+        const orderResponse = await axios.post(
+            `https://api.bigcommerce.com/stores/${config.STORE_HASH}/v3/checkouts/${checkoutId}/orders`,
+            {},
+            {
+                headers: {
+                    'X-Auth-Token': config.API_TOKEN,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        const newOrderId = orderResponse.data.data.id;
+
+        const redirectUrl = `https://ziptides.com/checkout/order-confirmation/${newOrderId}?t=${checkoutToken}`;
+
+        const myHeaders = new Headers();
+        myHeaders.append("Authorization", `Bearer ${config.DFIN_PUBLIC}`);
+        myHeaders.append("Content-Type", "application/json");
+
+        const body = JSON.stringify({
+            api_secret: config.DFIN_SECRET,
+            first_name: firstName,
+            last_name: lastName,
+            request_for: requestFor,
+            country_code: countryCode,
+            amount: amount,
+            redirect_url: redirectUrl,
+            redirect_time: "2",
+            ip_address: ipAddress,
+            meta_data: JSON.stringify({ request_id: cartId }),
+            send_notifications: "yes",
+            source: source
+        });
+
+        const requestOptions = {
+            method: "POST",
+            headers: myHeaders,
+            body: body,
+            redirect: "follow"
+        };
+
+        console.log(body);
+        const response = await fetch("https://sell.dfin.ai/api/request-payment", requestOptions);
+        const result = await response.json();
+
+        if (result && result.status === 'success' && result.data && result.data.payment_link) {
+            // Store variables after generating the payment link
+            storeVariables(cartId, 1, requestFor);
+            res.json({ payment_link: result.data.payment_link });
+        } else {
+            console.error('Unexpected response format:', result);
+            sendErrorNotification('Error fetching payment link: ' + JSON.stringify(result));
+            res.status(500).send('Error fetching payment link');
+        }
+    } catch (error) {
+        console.error('Error processing payment:', error);
+        sendErrorNotification('Error processing payment: ' + error.message);
+        res.status(500).send('Error processing payment');
     }
+});
 
-    const data = value;
+// Webhook endpoint
+app.post('/webhook', async (req, res) => {
+    const data = req.body;
+
+    // Log the received data for debugging purposes
+    console.log('Received webhook data:', JSON.stringify(data, null, 2));
     fs.appendFileSync('webhook-data.txt', `${JSON.stringify(data, null, 2)}\n`);
 
-    if (data.check && ['pending', 'processed'].includes(data.check.status)) {
-        try {
-            const identifier = data.check.identifier;
-            const status_id = 11; // Adjust this line based on actual data structure
-            const payment_method = "Bank ACH via Paynote"; // Adjust this line based on actual data structure
+    try {
+        // Check if the payment succeeded
+        if (data.status === 'succeeded' && data.data && data.data.metadata) {
+            let metadata = data.data.metadata;
 
-            storeVariables(payment_method, status_id, identifier);
-            res.sendStatus(200);
-        } catch (error) {
-            console.error('Error processing webhook:', error);
-            sendErrorNotification(`'Error processing webhook: ${error.message}`);
-            res.sendStatus(500);
+            // Log the raw metadata for debugging
+            console.log('Raw metadata:', metadata);
+
+            // If metadata is a JSON string, parse it
+            if (typeof metadata === 'string') {
+                try {
+                    metadata = JSON.parse(metadata);
+                } catch (error) {
+                    console.error('Error parsing metadata JSON:', error);
+                    sendErrorNotification('Error parsing metadata JSON: ' + error.message);
+                    return res.status(400).send('Invalid metadata format');
+                }
+            }
+
+            // Check if metadata is an array of JSON strings
+            if (Array.isArray(metadata)) {
+                try {
+                    // Parse each metadata item
+                    metadata = metadata.map(item => {
+                        try {
+                            return JSON.parse(item);
+                        } catch (error) {
+                            console.error('Error parsing metadata item:', error);
+                            sendErrorNotification('Error parsing metadata item: ' + error.message);
+                            return null;
+                        }
+                    }).filter(item => item !== null);
+
+                    console.log('Parsed metadata:', metadata);
+
+                    // Ensure metadata is an array and find the request_id
+                    const requestIdEntry = metadata.find(item => item.request_id);
+                    const requestId = requestIdEntry ? requestIdEntry.request_id : null;
+
+                    if (requestId) {
+                        console.log('Payment succeeded, request_id (cart_id):', requestId);
+
+                        // Store variables
+                        const identifier = requestId;
+                        const status = 11;
+                        const transaction_id = data.transaction_id;
+
+                        // Update storedVariables with the new order status and transaction_id
+                        storeVariables(identifier, status, transaction_id);
+                        res.sendStatus(200);
+                    } else {
+                        console.error('request_id not found in metadata.');
+                        sendErrorNotification('request_id not found in metadata.');
+                        res.status(400).send('request_id not found in metadata.');
+                    }
+                } catch (error) {
+                    console.error('Error processing metadata array:', error);
+                    sendErrorNotification('Error processing metadata array: ' + error.message);
+                    res.status(400).send('Invalid metadata format');
+                }
+            } else {
+                console.error('Metadata is not an array.');
+                sendErrorNotification('Metadata is not an array.');
+                res.status(400).send('Invalid metadata format');
+            }
+        } else {
+            console.error('Payment not successful or missing metadata.');
+            sendErrorNotification('Payment not successful or missing metadata.');
+            res.status(400).send('Payment not successful or missing metadata.');
         }
-    } else {
-        // Ignore "unpaid" status or other statuses
+    } catch (error) {
+        console.error('Error processing webhook:', error);
+        sendErrorNotification('Error processing webhook: ' + error.message);
+        res.status(500).send('Error processing webhook.');
+    }
+});
+
+// Update order status endpoint
+app.post('/update-order-status', async (req, res) => {
+    const { order_id } = req.body;
+
+    const storedData = getStoredVariableByOrderId(order_id);
+
+    if (!storedData || storedData.status_id !== 11) {
+        return res.status(400).send('Invalid or non-waiting order_id');
+    }
+
+    try {
+        const newOrderId = await getOrderIDbyCartID(order_id);
+        if (!newOrderId) {
+            return res.status(400).send('Order ID not found');
+        }
+
+        await axios.put(
+            `https://api.bigcommerce.com/stores/${config.STORE_HASH}/v2/orders/${newOrderId}`,
+            {
+                payment_method: 'Manual',
+                payment_provider_id: storedData.transaction_id,
+                status_id: 11
+            },
+            {
+                headers: {
+                    'X-Auth-Token': config.API_TOKEN,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        // Update the status to 11 (completed)
+        //storeVariables(order_id, 11, storedData.transaction_id);
         res.sendStatus(200);
+    } catch (error) {
+        console.error('Error updating order status:', error);
+        sendErrorNotification('Error updating order status: ' + error.message);
+        res.status(500).send('Error updating order status');
     }
 });
 
@@ -100,5 +243,5 @@ const httpsServer = https.createServer(credentials, app);
 // Start the server on port 3000
 httpsServer.listen(3000, () => {
     console.log('HTTPS Server is running on port 3000');
-	monitorStoredVariables(); // Start monitoring stored variables
+    monitorStoredVariables(); // Start monitoring stored variables
 });

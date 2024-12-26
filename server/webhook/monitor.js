@@ -40,11 +40,12 @@ const getOrderDetails = async (order_id) => {
     }
 };
 
-const updateOrder = async (order_id, status_id, payment_method) => {
+const updateOrder = async (order_id, status_id, payment_method, payment_provider_id) => {
     try {
         const response = await axios.put(`https://api.bigcommerce.com/stores/${config.STORE_HASH}/v2/orders/${order_id}`, {
             status_id,
-            payment_method
+            payment_method,
+            payment_provider_id
         }, {
             headers: {
                 'Accept': 'application/json',
@@ -60,12 +61,12 @@ const updateOrder = async (order_id, status_id, payment_method) => {
     }
 };
 
-const storeVariables = (paymentMethod, statusId, cartId) => {
+const storeVariables = (order_id, status_id, transaction_id) => {
     const newData = {
-        PAYMENT_METHOD: paymentMethod,
-        STATUS_ID: statusId,
-        ORDER_ID: cartId,
-        DATE_ADDED: Date.now()
+        order_id,
+        status_id,
+        transaction_id,
+        date_added: Date.now()
     };
 
     let currentData = [];
@@ -75,10 +76,21 @@ const storeVariables = (paymentMethod, statusId, cartId) => {
     }
 
     const currentTime = Date.now();
-    currentData = currentData.filter(data => currentTime - data.DATE_ADDED <= 86400000 && data.ORDER_ID !== cartId);
+    currentData = currentData.filter(data => currentTime - data.date_added <= 86400000 && data.order_id !== order_id);
 
     currentData.push(newData);
     fs.writeFileSync(config.FILE_PATH, JSON.stringify(currentData, null, 2));
+};
+
+const getStoredVariableByOrderId = (order_id) => {
+    if (!fs.existsSync(config.FILE_PATH)) {
+        return null;
+    }
+
+    const fileData = fs.readFileSync(config.FILE_PATH, 'utf8');
+    const currentData = JSON.parse(fileData) || [];
+
+    return currentData.find(data => data.order_id === order_id) || null;
 };
 
 const monitorStoredVariables = async () => {
@@ -96,16 +108,16 @@ const monitorStoredVariables = async () => {
         for (let i = 0; i < currentData.length; i++) {
             const data = currentData[i];
 
-            if (currentTime - data.DATE_ADDED > timeout) {
-                console.log(`Removing stale entry for order ID ${data.ORDER_ID}`);
+            if (currentTime - data.date_added > timeout) {
+                console.log(`Removing stale entry for order ID ${data.order_id}`);
                 currentData.splice(i, 1);
                 i--;
                 continue;
             }
 
-            const order_id = await getOrderIDbyCartID(data.ORDER_ID);
+            const order_id = await getOrderIDbyCartID(data.order_id);
             if (!order_id) {
-                console.log(`Order ID ${data.ORDER_ID} not found yet`);
+                console.log(`Order ID ${data.order_id} not found yet`);
                 continue;
             }
 
@@ -115,9 +127,13 @@ const monitorStoredVariables = async () => {
                 continue;
             }
 
-            if (orderDetails.status_id !== 11 || orderDetails.payment_method !== 'Bank ACH via Paynote') {
-                console.log(`Updating order ID ${order_id}`);
-                await updateOrder(order_id, 11, 'Bank ACH via Paynote');
+            if (orderDetails.status_id !== 11 || orderDetails.payment_method !== 'Manual' || orderDetails.payment_provider_id !== data.transaction_id) {
+                if (data.status_id == 11) {
+                    console.log(`Updating order ID ${order_id}`);
+                    await updateOrder(order_id, 11, 'Manual', data.transaction_id);
+                } else {
+                    console.log(`Skipping order ID ${order_id} -- Still not paid.`);
+                }
             } else {
                 console.log(`Order ID ${order_id} is correctly set. Removing from check.`);
                 currentData.splice(i, 1);
@@ -129,4 +145,4 @@ const monitorStoredVariables = async () => {
     }, interval);
 };
 
-module.exports = { storeVariables, monitorStoredVariables };
+module.exports = { storeVariables, getStoredVariableByOrderId, monitorStoredVariables };

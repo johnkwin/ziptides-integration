@@ -34,12 +34,13 @@
 <script src="https://checkout-sdk.bigcommerce.com/v1/loader.js"></script>
 <script>
     let service, state; // Declare these variables globally for reuse
-    var firstTime = true;
+
     const initSdk = async () => {
         const module = await checkoutKitLoader.load('checkout-sdk');
         service = module.createCheckoutService();
         state = await service.loadCheckout('{{{ checkout.id }}}');
     };
+
     document.addEventListener('DOMContentLoaded', function () {
         const observer = new MutationObserver(async function (mutations, obs) {
             const placeOrderButton = document.querySelector('#checkout-payment-continue');
@@ -47,7 +48,7 @@
 
             if (placeOrderButton && formActionsContainer) {
                 await initSdk();
-                loadIframeButton(placeOrderButton, formActionsContainer);
+                setupPaymentButtons(placeOrderButton, formActionsContainer);
                 obs.disconnect();
             }
         });
@@ -55,110 +56,73 @@
         const config = { childList: true, subtree: true };
         observer.observe(document.body, config);
     });
-	function updateOrderURL(cartID, status_idn, payment_method) {
-        return 'https://ziptides.com/content/cmp.html?cart_id='+encodeURIComponent(cartID);
+
+    function updateOrderURL(cartID) {
+        return 'https://ziptides.com/content/cmp.html?cart_id=' + encodeURIComponent(cartID);
     }
+
     function redirect(location) {
         window.location.replace(location);
     }
-    async function loadIframeButton(placeOrderButton, formActionsContainer) {
-        if (!service || !state) { // Use the globally declared service and state if they're already loaded
+
+    async function setupPaymentButtons(originalButton, container) {
+        if (!service || !state) {
             console.error('Checkout service or state not initialized.');
-            return; // Exit if service or state are not available
+            return;
         }
 
+        // Clone the original button
+        const newButton = originalButton.cloneNode(true);
+        newButton.textContent = 'Pay Now';
+
+        // Hide the original button
+        originalButton.style.display = 'none';
+
+        // Add the new button to the container
+        container.appendChild(newButton);
+
+        // Extract necessary data for payment
         const cartData = state.data.getCart();
-        const processedItems = cartData.lineItems.physicalItems.map(function (item) {
-            return {
-                title: item.name,
-                price: item.salePrice * item.quantity
-            };
-        });
-        let totalDiscounts = 0;
+        const customerEmail = cartData.email;
+        const customerFirstName = state.data.getBillingAddress().firstName;
+        const customerLastName = state.data.getBillingAddress().lastName;
+        const totalValue = cartData.cartAmount - (state.data.getCheckout().cart.coupons || []).reduce((sum, coupon) => sum + coupon.discountedAmount, 0) + (state.data.getSelectedShippingOption().cost || 0);
+        const currency = cartData.currency.code;
 
-      if (state.data.getCheckout().cart.coupons && Array.isArray(state.data.getCheckout().cart.coupons)) {
-        state.data.getCheckout().cart.coupons.forEach(coupon => {
-          totalDiscounts += coupon.discountedAmount;
-        });
-      }
-        var objRequestRedirect1 = {
-            publicKey: 'pk_01HQJPF7EJ5QHVQ7E8C110BN52',
-            sandbox: false,
-            saveBankDetails: false,
-            displayMethod: 'redirect',
-            paymentToken: state.data.getCart().id,
-            widgetContainerSelector: 'form-actions',
-            storeName: 'Ziptides',
-            style: {
-                buttonClass: 'button button--action button--large button--slab optimizedCheckout-buttonPrimary hideframe',
-                buttonColor: '#000000',
-                buttonLabelColor: '#FFFFFF',
-                buttonLabel: 'Place order'
-            },
-            lightBox: {
-                redirectUrl: updateOrderURL(state.data.getCart().id),
-                cancelUrl: state.data.getConfig().links.checkoutLink,
-                title: 'Checkout',
-                subtitle: 'Cart',
-                logoUrl: "https://cdn11.bigcommerce.com/s-kofhquxyjv/images/stencil/205x61/ziptide_name_1706182412__35353.original.png",
-                formButtonLabel: 'Pay now',
-                show_cart_summary: false
-            },
-            checkout: {
-                totalValue: cartData.cartAmount - totalDiscounts + (state.data.getSelectedShippingOption().cost ? state.data.getSelectedShippingOption().cost : 0),
-                currency: cartData.currency.code,
-                description: '.',
-                items: processedItems,
-                customerEmail: cartData.email,
-                customerFirstName: state.data.getBillingAddress().firstName,
-                customerLastName: state.data.getBillingAddress().lastName
-            },
-            onSuccess: function () {
-                redirect(updateOrderURL(state.data.getCart().id));
-            },
-            onExit: function () {
-                redirect(state.data.getConfig().links.checkoutLink);
-            },
-            onError: function () {
-                redirect(state.data.getConfig().links.checkoutLink);
-                console.log(response.error.message);
-            },
-            onCancel: function () {
-                redirect(state.data.getConfig().links.checkoutLink);
-            }
-        };
-        document.querySelectorAll('input[name="paymentProviderRadio"]').forEach(async function (radioButton) {
-            radioButton.addEventListener('change', async function () {
-                if (firstTime) {
-                    var paynoteRedirect = new PAYNOTE(objRequestRedirect1);
-                    await paynoteRedirect.render();
-                    firstTime = false;
-
-                }
-
-            });
-        });
-        // Hide iframe button if exists
-        document.querySelectorAll('.hideframe, .hideframe1').forEach(function (button) {
-            button.style.display = 'none';
-        });
-        setupPaymentMethodChangeListener(placeOrderButton);
-    }
-    function setupPaymentMethodChangeListener(placeOrderButton) {
-        document.querySelectorAll('input[name="paymentProviderRadio"]').forEach(function (radioButton) {
-            radioButton.addEventListener('change', function () {
-                var eCheckSelected = document.getElementById('radio-instore').checked;
-                if (eCheckSelected) {
-                    placeOrderButton.style.display = 'none';
-                    document.querySelector('.hideframe').style.display = 'block';
+        // Function to handle the payment process
+        async function handlePayment() {
+            try {
+                const response = await fetch('https://your-domain.com/create-payment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        cartId: state.data.getCart().id,
+                        firstName: customerFirstName,
+                        lastName: customerLastName,
+                        requestFor: customerEmail,
+                        countryCode: '1',
+                        amount: totalValue,
+                        ipAddress: '192.168.1.1', // Replace with actual IP if available
+                        source: 'web'
+                    })
+                });
+                const result = await response.json();
+                console.log('Payment Link:', result.payment_link);
+                if (result.payment_link) {
+                    redirect(result.payment_link);
                 } else {
-                    placeOrderButton.style.display = 'block';
-                    document.querySelector('.hideframe').style.display = 'none';
+                    console.error('Error in payment response:', result);
                 }
-            });
-        });
-    }
+            } catch (error) {
+                console.error('Error during payment process:', error);
+            }
+        }
 
+        // Attach handlePayment function to the new button
+        newButton.addEventListener('click', handlePayment);
+    }
 </script>
 
 {{{ checkout.checkout_content }}}
@@ -235,13 +199,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     const img = document.createElement('img');
                     img.src = logoUrl;
                     img.alt = `${methodName} logo`;
-                    img.style.width = '50px';
-                    img.style.marginRight = '10px';
+                    img.classList.add(methodName === 'Credit / Debit' ? 'credit-debit-logo' : 'payment-logo');
 
                     const nameContainer = paymentMethod.closest('.paymentProviderHeader-nameContainer');
                     nameContainer.style.display = 'flex';
                     nameContainer.style.alignItems = 'center';
-                    paymentMethod.insertAdjacentElement('beforebegin', img);
+
+                    const logoContainer = document.createElement('div');
+                    logoContainer.classList.add('payment-logo-container');
+
+                    logoContainer.appendChild(img);
+
+                    const textElement = document.createElement('span');
+                    textElement.textContent = methodName;
+                    textElement.classList.add('payment-logo-text');
+
+                    // Append the container before the payment method name
+                    nameContainer.insertAdjacentElement('beforebegin', logoContainer);
+
+                    // Remove duplicate text element if it already exists
+                    const existingTextElement = nameContainer.querySelector('.payment-logo-text');
+                    if (existingTextElement) {
+                        existingTextElement.remove();
+                    }
+                    nameContainer.appendChild(textElement);
                 } else {
                     console.warn('No logo URL found for method:', methodName);
                 }
