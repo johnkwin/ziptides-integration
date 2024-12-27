@@ -241,7 +241,7 @@ app.post('/notify-error', (req, res) => {
 const httpsServer = https.createServer(credentials, app);
 
 // Start the server on port 3000
-httpsServer.listen(3000, () => {
-    console.log('HTTPS Server is running on port 3000');
+httpsServer.listen(3030, () => {
+    console.log('HTTPS Server is running on port 3030');
     monitorStoredVariables(); // Start monitoring stored variables
 });

@@ -1,0 +1,10 @@
+https://github.com/johnkwin/ziptides-integration.git
+
+
+cd //var/zip/
+rm -rf webhook-service
+git clone https://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@github.com/johnkwin/ziptides-integration.git
+cd webhook-service
+npm install
+pm2 restart webhook-service
+pm2 logs webhook-service

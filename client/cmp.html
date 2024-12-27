@@ -101,7 +101,7 @@
 
         const notifyError = async (errorMessage) => {
             try {
-                await fetch('http://services.ziptides.com/notify-error', { // Replace with your actual webhook server URL
+                await fetch('https://services.ziptides.com/notify-error', { // Replace with your actual webhook server URL
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
