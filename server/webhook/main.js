@@ -21,6 +21,8 @@ app.post('/create-payment', async (req, res) => {
     const siteConfig = determineSiteConfig(req);
     const { cartId, firstName, lastName, requestFor, countryCode, amount, ipAddress, source } = req.body;
 
+    console.log(`Received create-payment request for cartId: ${cartId}, domain: ${siteConfig.DOMAIN}`);
+
     try {
         const tokenResponse = await axios.post(
             `https://api.bigcommerce.com/stores/${siteConfig.STORE_HASH}/v3/checkouts/${cartId}/token`,
@@ -34,7 +36,13 @@ app.post('/create-payment', async (req, res) => {
             }
         );
 
+        if (tokenResponse.status !== 200) {
+            console.error('Failed to fetch checkout token:', tokenResponse.data);
+            return res.status(400).json({ error: 'Failed to fetch checkout token.' });
+        }
+
         const checkoutToken = tokenResponse.data.data.checkoutToken;
+
         const orderResponse = await axios.post(
             `https://api.bigcommerce.com/stores/${siteConfig.STORE_HASH}/v3/checkouts/${cartId}/orders`,
             {},
@@ -74,11 +82,13 @@ app.post('/create-payment', async (req, res) => {
             storeVariables(cartId, 1, requestFor);
             res.json({ payment_link: result.data.payment_link });
         } else {
+            console.error('Error fetching payment link:', result.data);
             sendErrorNotification('Error fetching payment link: ' + JSON.stringify(result.data));
             res.status(500).send('Error fetching payment link');
         }
     } catch (error) {
-        sendErrorNotification('Error processing payment: ' + error.message);
+        console.error('Error processing payment:', error.response?.data || error.message);
+        sendErrorNotification('Error processing payment: ' + (error.response?.data || error.message));
         res.status(500).send('Error processing payment');
     }
 });
