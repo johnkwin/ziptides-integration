@@ -18,86 +18,66 @@ app.use(cors());
 app.use(express.json());
 
 app.post('/create-payment', async (req, res) => {
+    const siteConfig = determineSiteConfig(req);
     const { cartId, firstName, lastName, requestFor, countryCode, amount, ipAddress, source } = req.body;
 
     try {
-        const fetchModule = await import('node-fetch');
-        const fetch = fetchModule.default;
-        const Headers = fetchModule.Headers;
-
-        // Process the order
         const tokenResponse = await axios.post(
-            `https://api.bigcommerce.com/stores/${config.STORE_HASH}/v3/checkouts/${cartId}/token`,
+            `https://api.bigcommerce.com/stores/${siteConfig.STORE_HASH}/v3/checkouts/${cartId}/token`,
             { maxUses: 1, ttl: 86400 },
             {
                 headers: {
-                    'X-Auth-Token': config.API_TOKEN,
+                    'X-Auth-Token': siteConfig.API_TOKEN,
                     'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
+                    'Content-Type': 'application/json',
+                },
             }
         );
 
         const checkoutToken = tokenResponse.data.data.checkoutToken;
-        const checkoutId = cartId;
-
         const orderResponse = await axios.post(
-            `https://api.bigcommerce.com/stores/${config.STORE_HASH}/v3/checkouts/${checkoutId}/orders`,
+            `https://api.bigcommerce.com/stores/${siteConfig.STORE_HASH}/v3/checkouts/${cartId}/orders`,
             {},
             {
                 headers: {
-                    'X-Auth-Token': config.API_TOKEN,
+                    'X-Auth-Token': siteConfig.API_TOKEN,
                     'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
+                    'Content-Type': 'application/json',
+                },
             }
         );
 
         const newOrderId = orderResponse.data.data.id;
+        const redirectUrl = `https://${siteConfig.DOMAIN}/checkout/order-confirmation/${newOrderId}?t=${checkoutToken}`;
 
-        const redirectUrl = `https://ziptides.com/checkout/order-confirmation/${newOrderId}?t=${checkoutToken}`;
-
-        const myHeaders = new Headers();
-        myHeaders.append("Authorization", `Bearer ${config.DFIN_PUBLIC}`);
-        myHeaders.append("Content-Type", "application/json");
-
-        const body = JSON.stringify({
-            api_secret: config.DFIN_SECRET,
+        const result = await axios.post('https://sell.dfin.ai/api/request-payment', {
+            api_secret: siteConfig.DFIN_SECRET,
             first_name: firstName,
             last_name: lastName,
             request_for: requestFor,
             country_code: countryCode,
             amount: amount,
             redirect_url: redirectUrl,
-            redirect_time: "2",
+            redirect_time: '2',
             ip_address: ipAddress,
             meta_data: JSON.stringify({ request_id: cartId }),
-            send_notifications: "yes",
-            source: source
+            send_notifications: 'yes',
+            source: source,
+        }, {
+            headers: {
+                Authorization: `Bearer ${siteConfig.DFIN_PUBLIC}`,
+                'Content-Type': 'application/json',
+            },
         });
 
-        const requestOptions = {
-            method: "POST",
-            headers: myHeaders,
-            body: body,
-            redirect: "follow"
-        };
-
-        console.log(body);
-        const response = await fetch("https://sell.dfin.ai/api/request-payment", requestOptions);
-        const result = await response.json();
-
-        if (result && result.status === 'success' && result.data && result.data.payment_link) {
-            // Store variables after generating the payment link
+        if (result.data.status === 'success' && result.data.payment_link) {
             storeVariables(cartId, 1, requestFor);
             res.json({ payment_link: result.data.payment_link });
         } else {
-            console.error('Unexpected response format:', result);
-            sendErrorNotification('Error fetching payment link: ' + JSON.stringify(result));
+            sendErrorNotification('Error fetching payment link: ' + JSON.stringify(result.data));
             res.status(500).send('Error fetching payment link');
         }
     } catch (error) {
-        console.error('Error processing payment:', error);
         sendErrorNotification('Error processing payment: ' + error.message);
         res.status(500).send('Error processing payment');
     }
@@ -241,7 +221,7 @@ app.post('/notify-error', (req, res) => {
 const httpsServer = https.createServer(credentials, app);
 
 // Start the server on port 3000
-httpsServer.listen(3000, () => {
-    console.log('HTTPS Server is running on port 3000');
+httpsServer.listen(3030, () => {
+    console.log('HTTPS Server is running on port 3030');
     monitorStoredVariables(); // Start monitoring stored variables
 });
