@@ -1,7 +1,6 @@
 const fs = require('fs');
 const https = require('https');
 const cors = require('cors');
-const Joi = require('joi');
 const express = require('express');
 const axios = require('axios');
 const { storeVariables, getStoredVariableByOrderId, monitorStoredVariables } = require('./monitor');
@@ -9,101 +8,86 @@ const { sendErrorNotification } = require('./mailer');
 const app = express();
 const config = require('../../config');
 
-// Load the SSL certificate and key
-const privateKey = fs.readFileSync('/etc/letsencrypt/live/services.ziptides.com/privkey.pem', 'utf8');
-const certificate = fs.readFileSync('/etc/letsencrypt/live/services.ziptides.com/cert.pem', 'utf8');
+// Define a map for certificates
+const certificateMap = {
+    'services.ziptides.com': {
+        key: fs.readFileSync('/etc/letsencrypt/live/services.ziptides.com/privkey.pem', 'utf8'),
+        cert: fs.readFileSync('/etc/letsencrypt/live/services.ziptides.com/fullchain.pem', 'utf8'),
+    },
+    'services.unitedlabsupply.com': {
+        key: fs.readFileSync('/etc/letsencrypt/live/services.unitedlabsupply.com/privkey.pem', 'utf8'),
+        cert: fs.readFileSync('/etc/letsencrypt/live/services.unitedlabsupply.com/fullchain.pem', 'utf8'),
+    },
+};
 
-const credentials = { key: privateKey, cert: certificate };
+// Function to determine site configuration based on the request's hostname
+const determineSiteConfig = (hostname) => {
+    const siteConfig = siteConfigMap[hostname];
+    if (!siteConfig) {
+        throw new Error(`No configuration found for hostname: ${hostname}`);
+    }
+    return siteConfig;
+};
+
+// Create an HTTPS server with SNI (Server Name Indication) support
+const httpsServer = https.createServer(
+    {
+        SNICallback: (domain, callback) => {
+            const cert = certificateMap[domain];
+            if (cert) {
+                callback(null, cert);
+            } else {
+                callback(new Error('No certificate found for domain: ' + domain));
+            }
+        },
+    },
+    app
+);
+
 app.use(cors());
 app.use(express.json());
 
+// Example endpoint
 app.post('/create-payment', async (req, res) => {
+
+    const siteConfig = determineSiteConfig(req.hostname);
+
     const { cartId, firstName, lastName, requestFor, countryCode, amount, ipAddress, source } = req.body;
 
     try {
-        const fetchModule = await import('node-fetch');
-        const fetch = fetchModule.default;
-        const Headers = fetchModule.Headers;
-
-        // Process the order
         const tokenResponse = await axios.post(
-            `https://api.bigcommerce.com/stores/${config.STORE_HASH}/v3/checkouts/${cartId}/token`,
+            `https://api.bigcommerce.com/stores/${config.STORE_HASH}/v3/checkouts/${cartId}`,
             { maxUses: 1, ttl: 86400 },
             {
                 headers: {
                     'X-Auth-Token': config.API_TOKEN,
                     'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
+                    'Content-Type': 'application/json',
+                },
             }
         );
 
         const checkoutToken = tokenResponse.data.data.checkoutToken;
-        const checkoutId = cartId;
-
-        const orderResponse = await axios.post(
-            `https://api.bigcommerce.com/stores/${config.STORE_HASH}/v3/checkouts/${checkoutId}/orders`,
+        const newOrderId = await axios.post(
+            `https://api.bigcommerce.com/stores/${config.STORE_HASH}/v3/checkouts/${cartId}/orders`,
             {},
             {
                 headers: {
                     'X-Auth-Token': config.API_TOKEN,
                     'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
+                    'Content-Type': 'application/json',
+                },
             }
         );
 
-        const newOrderId = orderResponse.data.data.id;
-
-        const redirectUrl = `https://ziptides.com/checkout/order-confirmation/${newOrderId}?t=${checkoutToken}`;
-
-        const myHeaders = new Headers();
-        myHeaders.append("Authorization", `Bearer ${config.DFIN_PUBLIC}`);
-        myHeaders.append("Content-Type", "application/json");
-
-        const body = JSON.stringify({
-            api_secret: config.DFIN_SECRET,
-            first_name: firstName,
-            last_name: lastName,
-            request_for: requestFor,
-            country_code: countryCode,
-            amount: amount,
-            redirect_url: redirectUrl,
-            redirect_time: "2",
-            ip_address: ipAddress,
-            meta_data: JSON.stringify({ request_id: cartId }),
-            send_notifications: "yes",
-            source: source
-        });
-
-        const requestOptions = {
-            method: "POST",
-            headers: myHeaders,
-            body: body,
-            redirect: "follow"
-        };
-
-        console.log(body);
-        const response = await fetch("https://sell.dfin.ai/api/request-payment", requestOptions);
-        const result = await response.json();
-
-        if (result && result.status === 'success' && result.data && result.data.payment_link) {
-            // Store variables after generating the payment link
-            storeVariables(cartId, 1, requestFor);
-            res.json({ payment_link: result.data.payment_link });
-        } else {
-            console.error('Unexpected response format:', result);
-            sendErrorNotification('Error fetching payment link: ' + JSON.stringify(result));
-            res.status(500).send('Error fetching payment link');
-        }
+        const redirectUrl = `https://${req.hostname}/checkout/order-confirmation/${newOrderId}?t=${checkoutToken}`;
+        res.json({ redirectUrl });
     } catch (error) {
-        console.error('Error processing payment:', error);
-        sendErrorNotification('Error processing payment: ' + error.message);
-        res.status(500).send('Error processing payment');
+        console.error('Error:', error.message);
+        res.status(500).send('An error occurred');
     }
 });
 
-// Webhook endpoint
 app.post('/webhook', async (req, res) => {
     const data = req.body;
 
@@ -237,11 +221,8 @@ app.post('/notify-error', (req, res) => {
     res.sendStatus(200);
 });
 
-// Create the HTTPS server
-const httpsServer = https.createServer(credentials, app);
-
-// Start the server on port 3000
-httpsServer.listen(3030, () => {
-    console.log('HTTPS Server is running on port 3030');
-    monitorStoredVariables(); // Start monitoring stored variables
+// Start the server on a single port
+httpsServer.listen(3000, () => {
+    console.log('HTTPS Server is running on port 3000');
+    monitorStoredVariables();
 });
