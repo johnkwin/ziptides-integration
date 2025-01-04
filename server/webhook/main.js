@@ -25,7 +25,7 @@ app.post('/create-payment', async (req, res) => {
 
     try {
         const tokenResponse = await axios.post(
-            `https://api.bigcommerce.com/stores/${siteConfig.STORE_HASH}/v3/checkouts/${cartId}/token`,
+            `https://api.bigcommerce.com/stores/${siteConfig.STORE_HASH}/v3/checkouts/${cartId}`,
             { maxUses: 1, ttl: 86400 },
             {
                 headers: {
