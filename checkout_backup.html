@@ -1,0 +1,315 @@
+{{#partial "head"}}
+{{{ checkout.checkout_head }}}
+{{{ stylesheet '/assets/css/optimized-checkout.css' }}}
+{{ getFontsCollection }}
+
+<script type="text/javascript">
+  window.language = {{{langJson 'optimized_checkout'}}};
+</script>
+{{{head.scripts}}}
+{{/partial}}
+
+
+{{#partial "page"}}
+<header class="checkoutHeader optimizedCheckout-header">
+    <div class="checkoutHeader-content">
+        <h1 class="is-srOnly">{{lang 'checkout.title'}}</h1>
+        <h2 class="checkoutHeader-heading">
+            <a class="checkoutHeader-link" href="{{urls.home}}">
+                {{#if checkout.header_image}}
+                    <img alt="{{settings.store_logo.title}}" class="checkoutHeader-logo" id="logoImage" src="{{ checkout.header_image }}"/>
+                {{ else }}
+                    <span class="header-logo-text">{{settings.store_logo.title}}</span>
+                {{/if}}
+            </a>
+        </h2>
+    </div>
+</header>
+<script type="text/javascript" src="https://developers.seamlesschex.com/docs/checkoutjs/sdk-min.js"></script>
+<style>
+.payment-logo {
+    max-height: 55px;
+    height: 55px;
+    width: 55px;
+    margin-right: 10px;
+    border-radius: 85%;
+    overflow: hidden;
+    object-fit: cover;
+}
+
+.payment-logo-container {
+    align-items: center;
+    margin: 5px;
+}
+
+.paymentProviderHeader-nameContainer {
+    align-items: center;
+    justify-content: flex-end;
+    width: 100%;
+}
+
+.paymentProviderHeader-name {
+    flex-grow: 1;
+    text-align: right;
+    margin-left: auto;
+    align-items: flex-end;
+    align-self: start;
+    display: block;
+}
+
+.credit-debit-logo {
+    max-height: 40px;
+    height: 40px;
+    border-radius: 2px;
+    object-fit: cover;
+    margin-right: 10px;
+}
+
+</style>
+<script src="https://checkout-sdk.bigcommerce.com/v1/loader.js"></script>
+<script>
+    let service, state; // Declare these variables globally for reuse
+    var firstTime = true;
+    const initSdk = async () => {
+        const module = await checkoutKitLoader.load('checkout-sdk');
+        service = module.createCheckoutService();
+        state = await service.loadCheckout('{{{ checkout.id }}}');
+    };
+    document.addEventListener('DOMContentLoaded', function () {
+        const observer = new MutationObserver(async function (mutations, obs) {
+            const placeOrderButton = document.querySelector('#checkout-payment-continue');
+            const formActionsContainer = document.querySelector('.checkout-form');
+
+            if (placeOrderButton && formActionsContainer) {
+                await initSdk();
+                loadIframeButton(placeOrderButton, formActionsContainer);
+                obs.disconnect();
+            }
+        });
+
+        const config = { childList: true, subtree: true };
+        observer.observe(document.body, config);
+    });
+	function updateOrderURL(cartID, status_idn, payment_method) {
+        return 'https://ziptides.com/content/cmp.html?cart_id='+encodeURIComponent(cartID);
+    }
+    function redirect(location) {
+        window.location.replace(location);
+    }
+    async function loadIframeButton(placeOrderButton, formActionsContainer) {
+        if (!service || !state) { // Use the globally declared service and state if they're already loaded
+            console.error('Checkout service or state not initialized.');
+            return; // Exit if service or state are not available
+        }
+
+        const cartData = state.data.getCart();
+        const processedItems = cartData.lineItems.physicalItems.map(function (item) {
+            return {
+                title: item.name,
+                price: item.salePrice * item.quantity
+            };
+        });
+        let totalDiscounts = 0;
+
+      if (state.data.getCheckout().cart.coupons && Array.isArray(state.data.getCheckout().cart.coupons)) {
+        state.data.getCheckout().cart.coupons.forEach(coupon => {
+          totalDiscounts += coupon.discountedAmount;
+        });
+      }
+        var objRequestRedirect1 = {
+            publicKey: 'pk_01HQJPF7EJ5QHVQ7E8C110BN52',
+            sandbox: false,
+            saveBankDetails: false,
+            displayMethod: 'redirect',
+            paymentToken: state.data.getCart().id,
+            widgetContainerSelector: 'form-actions',
+            storeName: 'Ziptides',
+            style: {
+                buttonClass: 'button button--action button--large button--slab optimizedCheckout-buttonPrimary hideframe',
+                buttonColor: '#000000',
+                buttonLabelColor: '#FFFFFF',
+                buttonLabel: 'Place order'
+            },
+            lightBox: {
+                redirectUrl: updateOrderURL(state.data.getCart().id),
+                cancelUrl: state.data.getConfig().links.checkoutLink,
+                title: 'Checkout',
+                subtitle: 'Cart',
+                logoUrl: "https://cdn11.bigcommerce.com/s-kofhquxyjv/images/stencil/205x61/ziptide_name_1706182412__35353.original.png",
+                formButtonLabel: 'Pay now',
+                show_cart_summary: false
+            },
+            checkout: {
+                totalValue: cartData.cartAmount - totalDiscounts + (state.data.getSelectedShippingOption().cost ? state.data.getSelectedShippingOption().cost : 0),
+                currency: cartData.currency.code,
+                description: '.',
+                items: processedItems,
+                customerEmail: cartData.email,
+                customerFirstName: state.data.getBillingAddress().firstName,
+                customerLastName: state.data.getBillingAddress().lastName
+            },
+            onSuccess: function () {
+                redirect(updateOrderURL(state.data.getCart().id));
+            },
+            onExit: function () {
+                redirect(state.data.getConfig().links.checkoutLink);
+            },
+            onError: function () {
+                redirect(state.data.getConfig().links.checkoutLink);
+                console.log(response.error.message);
+            },
+            onCancel: function () {
+                redirect(state.data.getConfig().links.checkoutLink);
+            }
+        };
+        document.querySelectorAll('input[name="paymentProviderRadio"]').forEach(async function (radioButton) {
+            radioButton.addEventListener('change', async function () {
+                if (firstTime) {
+                    var paynoteRedirect = new PAYNOTE(objRequestRedirect1);
+                    await paynoteRedirect.render();
+                    firstTime = false;
+
+                }
+
+            });
+        });
+        // Hide iframe button if exists
+        document.querySelectorAll('.hideframe, .hideframe1').forEach(function (button) {
+            button.style.display = 'none';
+        });
+        setupPaymentMethodChangeListener(placeOrderButton);
+    }
+    function setupPaymentMethodChangeListener(placeOrderButton) {
+        document.querySelectorAll('input[name="paymentProviderRadio"]').forEach(function (radioButton) {
+            radioButton.addEventListener('change', function () {
+                var eCheckSelected = document.getElementById('radio-instore').checked;
+                if (eCheckSelected) {
+                    placeOrderButton.style.display = 'none';
+                    document.querySelector('.hideframe').style.display = 'block';
+                } else {
+                    placeOrderButton.style.display = 'block';
+                    document.querySelector('.hideframe').style.display = 'none';
+                }
+            });
+        });
+    }
+
+</script>
+
+{{{ checkout.checkout_content }}}
+
+
+<script>
+function highlightACH() {
+    // Function to wait for the element to appear in the DOM
+    function waitForElement(selector, callback) {
+        const observer = new MutationObserver((mutations, observer) => {
+            if (document.querySelector(selector)) {
+                callback();
+                observer.disconnect();
+            }
+        });
+
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // Function to highlight the element
+    function highlightElement(element) {
+        if (element) {
+            element.style.backgroundColor = 'yellow';
+            element.style.border = '2px solid red';
+            element.style.padding = '10px';
+            element.style.borderRadius = '5px';
+        }
+    }
+
+    // Wait for the specific element to appear and then highlight it
+    waitForElement('ul.form-checklist.optimizedCheckout-form-checklist li.form-checklist-item.optimizedCheckout-form-checklist-item', () => {
+        document.querySelectorAll('ul.form-checklist.optimizedCheckout-form-checklist li.form-checklist-item.optimizedCheckout-form-checklist-item').forEach(item => {
+            const nameElement = item.querySelector('div[data-test="payment-method-name"]');
+            if (nameElement && nameElement.textContent.trim() === 'PayPal') {
+                highlightElement(item);
+            }
+        });
+    });
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const paymentLogos = {
+        'PayPal': '/content/paypal.jpg',
+        'Cash App (BTC) or Bitcoin': '/content/cashapp.png',
+        'Venmo': '/content/venmo.png',
+        'Credit / Debit': '/content/cards.png',
+        'Zelle': '/content/zelle.png'
+    };
+
+    function addPaymentLogos() {
+        function waitForPaymentMethods() {
+            return new Promise((resolve) => {
+                const observer = new MutationObserver((mutations, obs) => {
+                    const paymentMethods = document.querySelectorAll('.paymentProviderHeader-name');
+                    if (paymentMethods.length > 0) {
+                        resolve(paymentMethods);
+                        obs.disconnect();
+                    }
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
+            });
+        }
+
+        waitForPaymentMethods().then(paymentMethods => {
+            console.log('Found payment methods:', paymentMethods);
+
+            paymentMethods.forEach(paymentMethod => {
+                const methodName = paymentMethod.textContent.trim();
+                console.log('Processing payment method:', methodName);
+
+                const logoUrl = paymentLogos[methodName];
+                console.log('Logo URL:', logoUrl);
+
+                if (logoUrl) {
+                    const img = document.createElement('img');
+                    img.src = logoUrl;
+                    img.alt = `${methodName} logo`;
+                    img.classList.add(methodName === 'Credit / Debit' ? 'credit-debit-logo' : 'payment-logo');
+
+                    const nameContainer = paymentMethod.closest('.paymentProviderHeader-nameContainer');
+                    nameContainer.style.display = 'flex';
+                    nameContainer.style.alignItems = 'center';
+                    nameContainer.style.justifyContent = 'space-between';
+
+                    const logoContainer = document.createElement('div');
+                    logoContainer.classList.add('payment-logo-container');
+
+                    // Check if the logo container already exists to avoid duplication
+                    if (!nameContainer.previousElementSibling || !nameContainer.previousElementSibling.classList.contains('payment-logo-container')) {
+                        nameContainer.insertAdjacentElement('beforebegin', logoContainer);
+                        logoContainer.appendChild(img);
+                    } else {
+                        // Update the existing logo
+                        nameContainer.previousElementSibling.querySelector('img').src = logoUrl;
+                    }
+
+                    // Ensure the text is aligned to the right
+                    paymentMethod.style.flexGrow = 1;
+                    paymentMethod.style.textAlign = 'right';
+                    paymentMethod.style.display = 'block';
+                    paymentMethod.style.marginLeft = 'auto';
+                } else {
+                    console.warn('No logo URL found for method:', methodName);
+                }
+            });
+        }).catch(error => {
+            console.error('Error finding payment methods:', error);
+        });
+    }
+
+    addPaymentLogos();
+});
+
+highlightACH();
+</script>
+{{{ footer.scripts }}}
+
+{{/partial}}
+
+{{> layout/empty}}
